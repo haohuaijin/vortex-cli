@@ -4186,6 +4186,7 @@ dependencies = [
  "anyhow",
  "arrow",
  "async-walkdir",
+ "clap",
  "datafusion",
  "futures",
  "hashbrown 0.16.1",
@@ -4195,6 +4196,7 @@ dependencies = [
  "promql-parser",
  "rand",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -4203,7 +4205,9 @@ dependencies = [
  "vortex-datafusion",
  "vortex-dtype",
  "vortex-file",
+ "vortex-layout",
  "vortex-scan",
+ "vortex-session",
 ]
 
 [[package]]

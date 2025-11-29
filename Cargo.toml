@@ -10,6 +10,7 @@ datafusion = "50.3.0"
 tokio = { version = "1.45.1", features = ["rt-multi-thread", "fs"] }
 promql-parser = "0.4"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
 futures = "0.3.31"
 arrow = "56.0.0"
 parquet = "56.0.0"
@@ -20,6 +21,7 @@ once_cell = "1.21.3"
 rand = "0.9.1"
 mimalloc = { version = "0.1" }
 hashbrown = { version = "0.16.0", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
 vortex = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c", features = [
     "tokio",
 ] }
@@ -28,4 +30,6 @@ vortex-array = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f
 vortex-datafusion = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 vortex-scan = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 vortex-file = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-session = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-layout = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 tokio-util = { version = "0.7", features = ["compat"] }
