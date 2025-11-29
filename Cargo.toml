@@ -1,0 +1,31 @@
+[package]
+name = "vortex-cli"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+datafusion = "50.3.0"
+tokio = { version = "1.45.1", features = ["rt-multi-thread", "fs"] }
+promql-parser = "0.4"
+serde = { version = "1", features = ["derive"] }
+futures = "0.3.31"
+arrow = "56.0.0"
+parquet = "56.0.0"
+tempfile = "3.20.0"
+anyhow = "1.0.98"
+async-walkdir = "2.1.0"
+once_cell = "1.21.3"
+rand = "0.9.1"
+mimalloc = { version = "0.1" }
+hashbrown = { version = "0.16.0", features = ["serde"] }
+vortex = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c", features = [
+    "tokio",
+] }
+vortex-dtype = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-array = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-datafusion = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-scan = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-file = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+tokio-util = { version = "0.7", features = ["compat"] }

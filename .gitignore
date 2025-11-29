@@ -1,0 +1,10 @@
+/target
+/default*
+/data/*
+.DS_Store
+.vscode/
+.idea/
+*.log
+*.tmp
+*.swp
+*.txt
