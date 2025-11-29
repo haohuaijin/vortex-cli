@@ -265,6 +265,40 @@ async fn show_layout(path: &Path, format: OutputFormat, verbose: bool) -> Result
             println!("Row Count: {}", layout.row_count());
             println!("Children: {}", layout.nchildren());
 
+            // Show column encoding summary
+            if layout.encoding().to_string() == "vortex.struct" {
+                println!("\nColumn Encodings:");
+                println!("{:<5} {:<60} {:<20}", "Index", "Column Name", "Encoding Type");
+                println!("{}", "-".repeat(90));
+
+                for idx in 0..layout.nchildren() {
+                    if let Ok(child) = layout.child(idx) {
+                        let child_type = layout.child_type(idx);
+                        let col_name = child_type.name();
+                        let encoding = child.encoding().to_string();
+
+                        // Get the actual data encoding (skip stats wrapper if present)
+                        let data_encoding = if encoding == "vortex.stats" && child.nchildren() > 0 {
+                            if let Ok(data_child) = child.child(0) {
+                                data_child.encoding().to_string()
+                            } else {
+                                encoding.clone()
+                            }
+                        } else {
+                            encoding.clone()
+                        };
+
+                        println!(
+                            "{:<5} {:<60} {:<20}",
+                            idx,
+                            truncate_string(&col_name.to_string(), 60),
+                            data_encoding
+                        );
+                    }
+                }
+                println!();
+            }
+
             println!("\nLayout Tree:");
             let display_tree = DisplayLayoutTree::new(layout.clone(), verbose);
             println!("{}", display_tree);
@@ -361,6 +395,40 @@ async fn show_inspect(path: &Path, format: OutputFormat, verbose: bool) -> Resul
             println!("\n--- Layout ---");
             println!("Layout Type: {}", layout.encoding());
             println!("Children: {}", layout.nchildren());
+
+            // Show column encoding summary
+            if layout.encoding().to_string() == "vortex.struct" {
+                println!("\nColumn Encodings:");
+                println!("{:<5} {:<60} {:<20}", "Index", "Column Name", "Encoding Type");
+                println!("{}", "-".repeat(90));
+
+                for idx in 0..layout.nchildren() {
+                    if let Ok(child) = layout.child(idx) {
+                        let child_type = layout.child_type(idx);
+                        let col_name = child_type.name();
+                        let encoding = child.encoding().to_string();
+
+                        // Get the actual data encoding (skip stats wrapper if present)
+                        let data_encoding = if encoding == "vortex.stats" && child.nchildren() > 0 {
+                            if let Ok(data_child) = child.child(0) {
+                                data_child.encoding().to_string()
+                            } else {
+                                encoding.clone()
+                            }
+                        } else {
+                            encoding.clone()
+                        };
+
+                        println!(
+                            "{:<5} {:<60} {:<20}",
+                            idx,
+                            truncate_string(&col_name.to_string(), 60),
+                            data_encoding
+                        );
+                    }
+                }
+            }
+
             println!("\nLayout Tree:");
             let display_tree = DisplayLayoutTree::new(layout.clone(), verbose);
             println!("{}", display_tree);
