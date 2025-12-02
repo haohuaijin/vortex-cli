@@ -21,7 +21,7 @@ A command-line tool for inspecting and analyzing Vortex format files. This CLI p
 ### Build from Source
 
 ```bash
-git clone <repository-url>
+git clone git@github.com:haohuaijin/vortex-cli.git
 cd vortex-cli
 cargo build --release
 ```
