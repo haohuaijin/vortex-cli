@@ -3,8 +3,11 @@ use clap::{Parser, Subcommand};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use vortex::VortexSessionDefault;
 use vortex_file::{OpenOptionsSessionExt, VortexFile, register_default_encodings};
+use vortex_flatbuffers::footer as fb_footer;
 use vortex_layout::display::DisplayLayoutTree;
 use vortex_session::VortexSession;
 
@@ -136,6 +139,107 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     } else {
         format!("{}...", &s[..max_len - 3])
     }
+}
+
+/// Read footer flatbuffer from file and extract encoding specs
+async fn read_footer_encodings(path: &Path) -> Result<(Vec<String>, Vec<String>)> {
+    use vortex_flatbuffers::footer as fb;
+
+    let mut file = File::open(path).await?;
+    let file_size = file.metadata().await?.len();
+
+    if file_size < 8 {
+        anyhow::bail!("File too small to be a valid Vortex file");
+    }
+
+    // Read EOF (last 8 bytes)
+    // Format: [version: 2 bytes][postscript_len: 2 bytes][magic "VTXF": 4 bytes]
+    file.seek(std::io::SeekFrom::End(-8)).await?;
+    let mut eof = vec![0u8; 8];
+    file.read_exact(&mut eof).await?;
+
+    // Verify magic bytes (last 4 bytes)
+    if &eof[4..8] != b"VTXF" {
+        anyhow::bail!("Invalid magic bytes, not a Vortex file");
+    }
+
+    // Extract postscript size (bytes 2-4)
+    let postscript_size = u16::from_le_bytes([eof[2], eof[3]]) as u64;
+
+    if postscript_size == 0 {
+        anyhow::bail!("Invalid postscript size: 0");
+    }
+
+    if postscript_size + 8 > file_size {
+        anyhow::bail!("Postscript size {} exceeds file size {}", postscript_size, file_size);
+    }
+
+    // Read postscript (before EOF)
+    let postscript_offset = file_size - 8 - postscript_size;
+    file.seek(std::io::SeekFrom::Start(postscript_offset)).await?;
+    let mut postscript_bytes = vec![0u8; postscript_size as usize];
+    file.read_exact(&mut postscript_bytes).await?;
+
+    if postscript_bytes.is_empty() {
+        anyhow::bail!("Failed to read postscript bytes");
+    }
+
+    // Parse postscript flatbuffer (use root_unchecked to skip alignment check)
+    let fb_postscript = unsafe {
+        flatbuffers::root_unchecked::<fb::Postscript>(&postscript_bytes)
+    };
+
+    // Get footer segment info from postscript
+    let footer_segment = fb_postscript.footer()
+        .ok_or_else(|| anyhow::anyhow!("Postscript missing footer segment"))?;
+    let footer_offset = footer_segment.offset();
+    let footer_length = footer_segment.length();
+
+    if footer_length == 0 {
+        anyhow::bail!("Invalid footer length: 0");
+    }
+
+    if footer_offset + footer_length as u64 > file_size {
+        anyhow::bail!("Footer extends beyond file size");
+    }
+
+    // Read footer bytes
+    file.seek(std::io::SeekFrom::Start(footer_offset)).await?;
+    let mut footer_bytes = vec![0u8; footer_length as usize];
+    file.read_exact(&mut footer_bytes).await?;
+
+    if footer_bytes.is_empty() {
+        anyhow::bail!("Failed to read footer bytes");
+    }
+
+    // Parse footer flatbuffer (use root_unchecked to skip alignment check)
+    let fb_footer = unsafe {
+        flatbuffers::root_unchecked::<fb_footer::Footer>(&footer_bytes)
+    };
+
+    // Extract array encodings
+    let mut array_encodings = Vec::new();
+    if let Some(array_specs) = fb_footer.array_specs() {
+        for spec in array_specs.iter() {
+            let encoding_id = spec.id();
+            if !encoding_id.is_empty() && !array_encodings.contains(&encoding_id.to_string()) {
+                array_encodings.push(encoding_id.to_string());
+            }
+        }
+    }
+
+    // Extract layout encodings
+    let mut layout_encodings = Vec::new();
+    if let Some(layout_specs) = fb_footer.layout_specs() {
+        for spec in layout_specs.iter() {
+            let encoding_id = spec.id();
+            if !encoding_id.is_empty() && !layout_encodings.contains(&encoding_id.to_string()) {
+                layout_encodings.push(encoding_id.to_string());
+            }
+        }
+    }
+
+    Ok((array_encodings, layout_encodings))
 }
 
 async fn open_vortex_file(path: &Path) -> Result<VortexFile> {
@@ -299,6 +403,32 @@ async fn show_layout(path: &Path, format: OutputFormat, verbose: bool) -> Result
                 println!();
             }
 
+            // Extract and display all encodings from footer
+            match read_footer_encodings(path).await {
+                Ok((array_encodings, layout_encodings)) => {
+                    println!("\nArray Encodings (compression methods):");
+                    if array_encodings.is_empty() {
+                        println!("  (none)");
+                    } else {
+                        for (idx, encoding) in array_encodings.iter().enumerate() {
+                            println!("  {}. {}", idx + 1, encoding);
+                        }
+                    }
+
+                    println!("\nLayout Encodings:");
+                    if layout_encodings.is_empty() {
+                        println!("  (none)");
+                    } else {
+                        for (idx, encoding) in layout_encodings.iter().enumerate() {
+                            println!("  {}. {}", idx + 1, encoding);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to extract encodings from footer: {}", e);
+                }
+            }
+
             println!("\nLayout Tree:");
             let display_tree = DisplayLayoutTree::new(layout.clone(), verbose);
             println!("{}", display_tree);
@@ -426,6 +556,32 @@ async fn show_inspect(path: &Path, format: OutputFormat, verbose: bool) -> Resul
                             data_encoding
                         );
                     }
+                }
+            }
+
+            // Extract and display all encodings from footer
+            match read_footer_encodings(path).await {
+                Ok((array_encodings, layout_encodings)) => {
+                    println!("\nArray Encodings (compression methods):");
+                    if array_encodings.is_empty() {
+                        println!("  (none)");
+                    } else {
+                        for (idx, encoding) in array_encodings.iter().enumerate() {
+                            println!("  {}. {}", idx + 1, encoding);
+                        }
+                    }
+
+                    println!("\nLayout Encodings:");
+                    if layout_encodings.is_empty() {
+                        println!("  (none)");
+                    } else {
+                        for (idx, encoding) in layout_encodings.iter().enumerate() {
+                            println!("  {}. {}", idx + 1, encoding);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to extract encodings from footer: {}", e);
                 }
             }
 

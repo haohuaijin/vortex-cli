@@ -32,4 +32,7 @@ vortex-scan = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5
 vortex-file = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 vortex-session = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 vortex-layout = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-flatbuffers = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-buffer = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 tokio-util = { version = "0.7", features = ["compat"] }
+flatbuffers = "25.1.23"
