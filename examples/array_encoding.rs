@@ -27,7 +27,7 @@ use vortex_session::VortexSession;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file_path = "default/log.vortex";
+    let file_path = "default/log_smart.vortex";
 
     println!("\n=== Inspecting Vortex File: {} ===\n", file_path);
 
@@ -113,7 +113,7 @@ async fn inspect_vortex_file(path: &str) -> Result<(), Box<dyn std::error::Error
 
         // Show detailed encoding tree for debugging
         println!("\n--- Detailed Encoding Tree ---");
-        analyze_encoding_tree_with_names(&array, 0, struct_fields.names());
+        analyze_encoding_tree_with_names(&array, 0, struct_fields.names(), true);
     } else {
         // Not a struct type, show the root array tree
         println!("Array Encodings:\n");
@@ -128,6 +128,7 @@ fn analyze_encoding_tree_with_names(
     array: &ArrayRef,
     depth: usize,
     column_names: &vortex_dtype::FieldNames,
+    show_first_struct_details: bool,
 ) {
     let indent = "  ".repeat(depth);
     let encoding_id = array.encoding_id();
@@ -150,15 +151,20 @@ fn analyze_encoding_tree_with_names(
         let children = get_array_children(array);
 
         if children.len() == column_names.len() {
-            // Display each field with its column name
-            for (idx, (name, child)) in column_names.iter().zip(children.iter()).enumerate() {
-                let prefix = if idx == column_names.len() - 1 {
-                    "└─"
-                } else {
-                    "├─"
-                };
-                println!("{}  {} Column [{}]:", indent, prefix, name);
-                analyze_encoding_tree(child, depth + 2);
+            if show_first_struct_details {
+                // Display each field with its column name (first struct only)
+                for (idx, (name, child)) in column_names.iter().zip(children.iter()).enumerate() {
+                    let prefix = if idx == column_names.len() - 1 {
+                        "└─"
+                    } else {
+                        "├─"
+                    };
+                    println!("{}  {} Column [{}]:", indent, prefix, name);
+                    analyze_encoding_tree(child, depth + 2);
+                }
+            } else {
+                // For subsequent structs, just show a summary
+                println!("{}  [Same structure: {} columns]", indent, children.len());
             }
             return;
         }
@@ -168,9 +174,18 @@ fn analyze_encoding_tree_with_names(
     let children = get_array_children(array);
 
     if !children.is_empty() {
+        // Track if we've already shown details for a struct
+        let mut shown_first_struct = !show_first_struct_details;
+
         for child in children {
+            // Only show details for the first struct we encounter
+            let show_details = !shown_first_struct;
+            if child.encoding_id().as_ref() == "vortex.struct" && show_details {
+                shown_first_struct = true;
+            }
+
             // Recursively call with names in case we find struct deeper in the tree
-            analyze_encoding_tree_with_names(&child, depth + 1, column_names);
+            analyze_encoding_tree_with_names(&child, depth + 1, column_names, show_details);
         }
     }
 }
