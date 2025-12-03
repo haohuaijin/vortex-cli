@@ -27,7 +27,7 @@ use vortex_session::VortexSession;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file_path = "default/log_smart.vortex";
+    let file_path = "default/metrics_smart.vortex";
 
     println!("\n=== Inspecting Vortex File: {} ===\n", file_path);
 

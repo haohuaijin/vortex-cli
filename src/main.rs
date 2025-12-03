@@ -6,6 +6,9 @@ use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use vortex::VortexSessionDefault;
+use vortex_array::{Array, ArrayRef, ArrayVisitor};
+use vortex_array::arrays::{DictArray, StructArray};
+use vortex_array::stream::ArrayStreamExt;
 use vortex_file::{OpenOptionsSessionExt, VortexFile, register_default_encodings};
 use vortex_flatbuffers::footer as fb_footer;
 use vortex_layout::display::DisplayLayoutTree;
@@ -79,6 +82,21 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+
+    /// Inspect array encodings and compression methods used in a Vortex file
+    Encoding {
+        /// Path to the Vortex file
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+
+        /// Output format (json or text)
+        #[arg(short, long, default_value = "text")]
+        format: OutputFormat,
+
+        /// Show detailed encoding tree
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +145,13 @@ async fn main() -> Result<()> {
             verbose,
         } => {
             show_inspect(&file, format, verbose).await?;
+        }
+        Commands::Encoding {
+            file,
+            format,
+            verbose,
+        } => {
+            show_encoding(&file, format, verbose).await?;
         }
     }
 
@@ -600,6 +625,333 @@ async fn show_inspect(path: &Path, format: OutputFormat, verbose: bool) -> Resul
             } else {
                 println!("\n--- Statistics ---");
                 println!("No statistics available");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Helper function to get children arrays
+fn get_array_children(array: &ArrayRef) -> Vec<ArrayRef> {
+    array.children()
+}
+
+/// Get compact description for specific encodings
+fn get_encoding_description(encoding_id: &str, array: &ArrayRef) -> String {
+    match encoding_id {
+        "vortex.zstd" => " [Zstd]".to_string(),
+        "vortex.dict" => {
+            if let Some(dict_array) = array.as_any().downcast_ref::<DictArray>() {
+                format!(
+                    " [Dict: {} values, {} codes]",
+                    dict_array.values().len(),
+                    dict_array.codes().len()
+                )
+            } else {
+                " [Dict]".to_string()
+            }
+        }
+        "vortex.runend" => {
+            if let Some(rle_array) = array.as_any().downcast_ref::<vortex_runend::RunEndArray>() {
+                format!(" [RLE: {} runs]", rle_array.ends().len())
+            } else {
+                " [RLE]".to_string()
+            }
+        }
+        "vortex.sparse" => " [Sparse]".to_string(),
+        "vortex.alp" => " [ALP float compression]".to_string(),
+        "vortex.alprd" => " [ALP-RD]".to_string(),
+        "vortex.pco" => " [PCO quantile compression]".to_string(),
+        "vortex.for" => " [Frame-of-Reference]".to_string(),
+        "fastlanes.bitpacked" => " [Bit-packed]".to_string(),
+        "vortex.delta" => " [Delta]".to_string(),
+        "vortex.fsst" => " [FSST string compression]".to_string(),
+        "vortex.sequence" => " [Sequence]".to_string(),
+        "vortex.constant" => " [Constant]".to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Extract column arrays from the tree structure
+fn extract_column_encodings_from_tree(array: &ArrayRef) -> Vec<ArrayRef> {
+    // Check if this is a struct
+    if let Some(struct_array) = array.as_any().downcast_ref::<StructArray>() {
+        return struct_array.fields().iter().cloned().collect();
+    }
+
+    // Recursively search children
+    for child in array.children() {
+        let result = extract_column_encodings_from_tree(&child);
+        if !result.is_empty() {
+            return result;
+        }
+    }
+
+    Vec::new()
+}
+
+/// Check if an array or its children contain a specific encoding
+fn contains_encoding(array: &ArrayRef, target_encoding: &str) -> bool {
+    // Check current array
+    if array.encoding_id().as_ref() == target_encoding {
+        return true;
+    }
+
+    // Recursively check children
+    for child in array.children() {
+        if contains_encoding(&child, target_encoding) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Find columns that use a specific encoding (recursively search)
+fn find_columns_with_encoding(
+    array: &ArrayRef,
+    target_encoding: &str,
+    column_names: &vortex_dtype::FieldNames,
+) -> Vec<String> {
+    let mut result = Vec::new();
+
+    // Check if the entire array tree contains the target encoding
+    if contains_encoding(array, target_encoding) {
+        // If we find the encoding anywhere in the tree, report all columns
+        for name in column_names.iter() {
+            result.push(name.to_string());
+        }
+    } else {
+        // Try the old logic for non-chunked cases
+        let column_encodings = extract_column_encodings_from_tree(array);
+
+        if !column_encodings.is_empty() {
+            for (name, child) in column_names.iter().zip(column_encodings.iter()) {
+                if contains_encoding(child, target_encoding) {
+                    result.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Recursively analyzes and displays the encoding tree of an array
+fn analyze_encoding_tree(array: &ArrayRef, depth: usize) {
+    let indent = "  ".repeat(depth);
+    let encoding_id = array.encoding_id();
+
+    // Build compact encoding description
+    let encoding_desc = get_encoding_description(encoding_id.as_ref(), array);
+
+    // Display encoding information in one line
+    println!(
+        "{}└─ {} ({} bytes){}",
+        indent,
+        encoding_id,
+        array.nbytes(),
+        encoding_desc
+    );
+
+    // Check for child arrays (nested encodings)
+    let children = get_array_children(array);
+
+    if !children.is_empty() {
+        for child in children {
+            analyze_encoding_tree(&child, depth + 1);
+        }
+    }
+}
+
+/// Recursively analyzes and displays the encoding tree with column names
+fn analyze_encoding_tree_with_names(
+    array: &ArrayRef,
+    depth: usize,
+    column_names: &vortex_dtype::FieldNames,
+    show_first_struct_details: bool,
+) {
+    let indent = "  ".repeat(depth);
+    let encoding_id = array.encoding_id();
+
+    // Build compact encoding description
+    let encoding_desc = get_encoding_description(encoding_id.as_ref(), array);
+
+    // Display encoding information
+    println!(
+        "{}└─ {} ({} bytes){}",
+        indent,
+        encoding_id,
+        array.nbytes(),
+        encoding_desc
+    );
+
+    // Check if this is a struct by encoding ID
+    if encoding_id.as_ref() == "vortex.struct" {
+        // Get children (which are the struct fields)
+        let children = get_array_children(array);
+
+        if children.len() == column_names.len() {
+            if show_first_struct_details {
+                // Display each field with its column name (first struct only)
+                for (idx, (name, child)) in column_names.iter().zip(children.iter()).enumerate() {
+                    let prefix = if idx == column_names.len() - 1 {
+                        "└─"
+                    } else {
+                        "├─"
+                    };
+                    println!("{}  {} Column [{}]:", indent, prefix, name);
+                    analyze_encoding_tree(child, depth + 2);
+                }
+            } else {
+                // For subsequent structs, just show a summary
+                println!("{}  [Same structure: {} columns]", indent, children.len());
+            }
+            return;
+        }
+    }
+
+    // Not a struct or column count doesn't match, recurse into children
+    let children = get_array_children(array);
+
+    if !children.is_empty() {
+        // Track if we've already shown details for a struct
+        let mut shown_first_struct = !show_first_struct_details;
+
+        for child in children {
+            // Only show details for the first struct we encounter
+            let show_details = !shown_first_struct;
+            if child.encoding_id().as_ref() == "vortex.struct" && show_details {
+                shown_first_struct = true;
+            }
+
+            // Recursively call with names in case we find struct deeper in the tree
+            analyze_encoding_tree_with_names(&child, depth + 1, column_names, show_details);
+        }
+    }
+}
+
+async fn show_encoding(path: &Path, format: OutputFormat, verbose: bool) -> Result<()> {
+    let session = VortexSession::default();
+
+    // Open the file
+    let reader = session.open_options().open(path.to_path_buf()).await?;
+
+    // Read the array
+    let array = reader.scan()?.into_array_stream()?.read_all().await?;
+
+    match format {
+        OutputFormat::Json => {
+            let mut encoding_info = serde_json::json!({
+                "file": path.display().to_string(),
+                "row_count": reader.row_count(),
+                "root_encoding": array.encoding_id().as_ref(),
+            });
+
+            // Try to extract column information
+            if let Some(struct_fields) = reader.dtype().as_struct_fields_opt() {
+                let column_encodings = extract_column_encodings_from_tree(&array);
+
+                if !column_encodings.is_empty() {
+                    let mut columns = Vec::new();
+                    for (name, child) in struct_fields.names().iter().zip(column_encodings.iter()) {
+                        columns.push(serde_json::json!({
+                            "name": name,
+                            "encoding": child.encoding_id().as_ref(),
+                            "bytes": child.nbytes(),
+                        }));
+                    }
+                    encoding_info["columns"] = serde_json::Value::Array(columns);
+                }
+
+                // Add compression summary
+                let zstd_columns = find_columns_with_encoding(&array, "vortex.zstd", struct_fields.names());
+                encoding_info["zstd_compressed_columns"] = serde_json::Value::Array(
+                    zstd_columns.into_iter().map(serde_json::Value::String).collect()
+                );
+            }
+
+            println!("{}", serde_json::to_string_pretty(&encoding_info)?);
+        }
+        OutputFormat::Text => {
+            println!("=== Vortex File Encoding Inspection ===");
+            println!("File: {}", path.display());
+            println!();
+
+            println!("File Information:");
+            println!("  Rows: {}", reader.row_count());
+            println!("  DType: {}", reader.dtype());
+            println!();
+
+            println!("Root Array Encoding:");
+            println!("  {}", array.encoding_id());
+            println!();
+
+            // Try to extract column names from DType if it's a struct type
+            if let Some(struct_fields) = reader.dtype().as_struct_fields_opt() {
+                println!("Columns ({} total):\n", struct_fields.names().len());
+
+                // Try to get encodings from struct in the tree
+                let column_encodings = extract_column_encodings_from_tree(&array);
+
+                if !column_encodings.is_empty() {
+                    // Successfully found column encodings
+                    for (idx, (name, child)) in struct_fields
+                        .names()
+                        .iter()
+                        .zip(column_encodings.iter())
+                        .enumerate()
+                    {
+                        let prefix = if idx == column_encodings.len() - 1 {
+                            "└─"
+                        } else {
+                            "├─"
+                        };
+
+                        // Get encoding summary
+                        let enc_id = child.encoding_id();
+                        let enc_desc = get_encoding_description(enc_id.as_ref(), child);
+
+                        println!(
+                            "{} {} -> {} ({} bytes){}",
+                            prefix,
+                            name,
+                            enc_id,
+                            child.nbytes(),
+                            enc_desc
+                        );
+                    }
+                } else {
+                    // Couldn't extract column encodings, just show names
+                    for (idx, name) in struct_fields.names().iter().enumerate() {
+                        let prefix = if idx == struct_fields.names().len() - 1 {
+                            "└─"
+                        } else {
+                            "├─"
+                        };
+                        println!("{} {}", prefix, name);
+                    }
+                }
+
+                // Add a summary of zstd usage
+                println!("\n--- Compression Summary ---");
+                let zstd_columns = find_columns_with_encoding(&array, "vortex.zstd", struct_fields.names());
+                if !zstd_columns.is_empty() {
+                    println!("Zstd compressed columns: {}", zstd_columns.join(", "));
+                } else {
+                    println!("No zstd compressed columns found");
+                }
+
+                // Show detailed encoding tree
+                if verbose {
+                    println!("\n--- Detailed Encoding Tree ---");
+                    analyze_encoding_tree_with_names(&array, 0, struct_fields.names(), true);
+                }
+            } else {
+                // Not a struct type, show the root array tree
+                println!("Array Encodings:\n");
+                analyze_encoding_tree(&array, 0);
             }
         }
     }
