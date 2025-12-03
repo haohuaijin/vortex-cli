@@ -27,6 +27,7 @@ vortex = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f7
 ] }
 vortex-dtype = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 vortex-array = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
+vortex-runend = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 vortex-datafusion = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 vortex-scan = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }
 vortex-file = { git = "https://github.com/haohuaijin/vortex", rev = "366bc1099f5fb0f716cbd38e028a869ac792872c" }

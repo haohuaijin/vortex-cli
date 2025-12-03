@@ -4209,6 +4209,7 @@ dependencies = [
  "vortex-file",
  "vortex-flatbuffers",
  "vortex-layout",
+ "vortex-runend",
  "vortex-scan",
  "vortex-session",
 ]
